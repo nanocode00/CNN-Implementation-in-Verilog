@@ -1,0 +1,3 @@
+[submodule "cnn_verilog"]
+	path = cnn_verilog
+	url = https://github.com/nanocode00/cnn_verilog
