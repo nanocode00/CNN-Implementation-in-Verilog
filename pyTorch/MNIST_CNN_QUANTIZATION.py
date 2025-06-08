@@ -8,9 +8,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+import torch.quantization
 from torchvision import datasets, transforms
 from torch.autograd import Variable
 import numpy as np
+
+torch.backends.quantized.engine = 'fbgemm'
 
 batch_size = 64
 
@@ -38,6 +41,9 @@ class CNN(nn.Module):
     # Initialization
     def __init__(self):
         super (CNN, self).__init__()
+
+        self.quant = torch.quantization.QuantStub()
+        self.dequant = torch.quantization.DeQuantStub()
         
         self.conv1_out_np = np.zeros((1, 3, 24, 24))
         self.mp1_out_np = np.zeros((1, 3, 12, 12))
@@ -68,6 +74,8 @@ class CNN(nn.Module):
     def forward(self, x):
         in_size = x.size(0)
         
+        x = self.quant(x)
+
         # Layer Integration
         x = self.conv1(x)
         self.conv1_out_np = x.detach().numpy()
@@ -88,6 +96,8 @@ class CNN(nn.Module):
         # Fully Connected Layer
         x = self.fc_1(x)
         self.fc_out_np = x.detach().numpy()
+
+        x = self.dequant(x)
         
         return F.log_softmax(x)
     
@@ -151,6 +161,15 @@ for epoch in range(1, 10):
     train(epoch)
     test()
 
+model.qconfig = torch.quantization.get_default_qconfig('fbgemm')
+torch.quantization.prepare(model, inplace=True)
+
+for i, (data, _) in enumerate(train_loader):
+    model(data)
+    if i > 5: break
+
+model = torch.quantization.convert(model, inplace=False)
+
 from PIL import Image
 
 def sample_test():
@@ -187,10 +206,15 @@ sample_test()
 #################### Weight & Bias in HEX of Convolution Layer1 ####################
 
 # Calibration
-int_conv1_weight_1 =  torch.tensor((model.conv1.weight.data[0][0] * 128), dtype = torch.int32)
-int_conv1_weight_2 =  torch.tensor((model.conv1.weight.data[1][0] * 128), dtype = torch.int32)
-int_conv1_weight_3 =  torch.tensor((model.conv1.weight.data[2][0] * 128), dtype = torch.int32)
-int_conv1_bias = torch.tensor((model.conv1.bias.data * 128), dtype = torch.int32)
+int_conv1_weight = model.conv1.weight().int_repr()
+int_conv1_weight_1 =  int_conv1_weight[0][0].to(torch.int32)
+int_conv1_weight_2 =  int_conv1_weight[1][0].to(torch.int32)
+int_conv1_weight_3 =  int_conv1_weight[2][0].to(torch.int32)
+
+scale_conv1 = model.conv1.scale.item()
+scale_input_conv1 = model.quant.scale.item()
+bias_float_conv1 = model.conv1.bias().detach()
+int_conv1_bias = (bias_float_conv1 / (scale_input_conv1 * scale_conv1)).to(torch.int32)
 
 print("Signed")
 print(int_conv1_weight_1)
@@ -218,28 +242,34 @@ print(int_conv1_weight_2)
 print(int_conv1_weight_3)
 print(int_conv1_bias)
 
-np.savetxt('txt/conv1_weight_1.txt', int_conv1_weight_1, fmt='%1.2x',delimiter = " ")
-np.savetxt('txt/conv1_weight_2.txt', int_conv1_weight_2, fmt='%1.2x',delimiter = " ")
-np.savetxt('txt/conv1_weight_3.txt', int_conv1_weight_3, fmt='%1.2x',delimiter = " ")
-np.savetxt('txt/conv1_bias.txt', int_conv1_bias, fmt='%1.2x',delimiter = " ")
+np.savetxt('txt_quantized/conv1_weight_1.txt', int_conv1_weight_1, fmt='%1.2x',delimiter = " ")
+np.savetxt('txt_quantized/conv1_weight_2.txt', int_conv1_weight_2, fmt='%1.2x',delimiter = " ")
+np.savetxt('txt_quantized/conv1_weight_3.txt', int_conv1_weight_3, fmt='%1.2x',delimiter = " ")
+np.savetxt('txt_quantized/conv1_bias.txt', int_conv1_bias, fmt='%1.2x',delimiter = " ")
 
 #################### Weight & Bias in HEX of Convolution Layer2 ####################
 
 # Calibration
 # print(np.shape(model.conv2.weight))
-int_conv2_weight_11 =  torch.tensor((model.conv2.weight.data[0][0]* 128), dtype = torch.int32)
-int_conv2_weight_12 =  torch.tensor((model.conv2.weight.data[0][1]* 128), dtype = torch.int32)
-int_conv2_weight_13 =  torch.tensor((model.conv2.weight.data[0][2]* 128), dtype = torch.int32)
 
-int_conv2_weight_21 =  torch.tensor((model.conv2.weight.data[1][0] * 128), dtype = torch.int32)
-int_conv2_weight_22 =  torch.tensor((model.conv2.weight.data[1][1] * 128), dtype = torch.int32)
-int_conv2_weight_23 =  torch.tensor((model.conv2.weight.data[1][2] * 128), dtype = torch.int32)
+int_conv2_weight = model.conv2.weight().int_repr()
 
-int_conv2_weight_31 =  torch.tensor((model.conv2.weight.data[2][0] * 128), dtype = torch.int32)
-int_conv2_weight_32 =  torch.tensor((model.conv2.weight.data[2][1] * 128), dtype = torch.int32)
-int_conv2_weight_33 =  torch.tensor((model.conv2.weight.data[2][2] * 128), dtype = torch.int32)
+int_conv2_weight_11 =  int_conv2_weight[0][0].to(torch.int32)
+int_conv2_weight_12 =  int_conv2_weight[0][1].to(torch.int32)
+int_conv2_weight_13 =  int_conv2_weight[0][2].to(torch.int32)
 
-int_conv2_bias = torch.tensor((model.conv2.bias.data * 128), dtype = torch.int32)
+int_conv2_weight_21 =  int_conv2_weight[1][0].to(torch.int32)
+int_conv2_weight_22 =  int_conv2_weight[1][1].to(torch.int32)
+int_conv2_weight_23 =  int_conv2_weight[1][2].to(torch.int32)
+
+int_conv2_weight_31 =  int_conv2_weight[2][0].to(torch.int32)
+int_conv2_weight_32 =  int_conv2_weight[2][1].to(torch.int32)
+int_conv2_weight_33 =  int_conv2_weight[2][2].to(torch.int32)
+
+scale_conv2 = model.conv2.scale.item()
+scale_input_conv2 = model.mp1_out_np.max() / 127.0
+bias_float_conv2 = model.conv2.bias().detach()
+int_conv2_bias = (bias_float_conv2 / (scale_input_conv2 * scale_conv2)).to(torch.int32)
 
 print ("Signed")
 print(int_conv2_weight_11)
@@ -300,30 +330,34 @@ print(int_conv2_weight_33, '\n')
 
 print(int_conv2_bias)
 
-np.savetxt('txt/conv2_weight_11.txt', int_conv2_weight_11, fmt='%1.2x',delimiter = " ")
-np.savetxt('txt/conv2_weight_12.txt', int_conv2_weight_12, fmt='%1.2x',delimiter = " ")
-np.savetxt('txt/conv2_weight_13.txt', int_conv2_weight_13, fmt='%1.2x',delimiter = " ")
+np.savetxt('txt_quantized/conv2_weight_11.txt', int_conv2_weight_11, fmt='%1.2x',delimiter = " ")
+np.savetxt('txt_quantized/conv2_weight_12.txt', int_conv2_weight_12, fmt='%1.2x',delimiter = " ")
+np.savetxt('txt_quantized/conv2_weight_13.txt', int_conv2_weight_13, fmt='%1.2x',delimiter = " ")
 
-np.savetxt('txt/conv2_weight_21.txt', int_conv2_weight_21, fmt='%1.2x',delimiter = " ")
-np.savetxt('txt/conv2_weight_22.txt', int_conv2_weight_22, fmt='%1.2x',delimiter = " ")
-np.savetxt('txt/conv2_weight_23.txt', int_conv2_weight_23, fmt='%1.2x',delimiter = " ")
+np.savetxt('txt_quantized/conv2_weight_21.txt', int_conv2_weight_21, fmt='%1.2x',delimiter = " ")
+np.savetxt('txt_quantized/conv2_weight_22.txt', int_conv2_weight_22, fmt='%1.2x',delimiter = " ")
+np.savetxt('txt_quantized/conv2_weight_23.txt', int_conv2_weight_23, fmt='%1.2x',delimiter = " ")
 
-np.savetxt('txt/conv2_weight_31.txt', int_conv2_weight_31, fmt='%1.2x',delimiter = " ")
-np.savetxt('txt/conv2_weight_32.txt', int_conv2_weight_32, fmt='%1.2x',delimiter = " ")
-np.savetxt('txt/conv2_weight_33.txt', int_conv2_weight_33, fmt='%1.2x',delimiter = " ")
+np.savetxt('txt_quantized/conv2_weight_31.txt', int_conv2_weight_31, fmt='%1.2x',delimiter = " ")
+np.savetxt('txt_quantized/conv2_weight_32.txt', int_conv2_weight_32, fmt='%1.2x',delimiter = " ")
+np.savetxt('txt_quantized/conv2_weight_33.txt', int_conv2_weight_33, fmt='%1.2x',delimiter = " ")
 
-np.savetxt('txt/conv2_bias.txt', int_conv2_bias, fmt='%1.2x',delimiter = " ")
+np.savetxt('txt_quantized/conv2_bias.txt', int_conv2_bias, fmt='%1.2x',delimiter = " ")
 
 #################### Weight & Bias in HEX of Fully Connected Layer ####################
 
-print(np.shape(model.fc_1.weight))
-print((model.fc_1.weight * 128).int())
+print(np.shape(model.fc_1.weight()))
+print(model.fc_1.weight().int_repr())
 
-print(np.shape(model.fc_1.bias))
-print((model.fc_1.bias * 128).int())
+print(np.shape(model.fc_1.bias()))
+print(model.fc_1.bias().int_repr())
 
-int_fc_weight = (model.fc_1.weight * 128).int()
-int_fc_bias = (model.fc_1.bias * 128).int()
+int_fc_weight = model.fc_1.weight().int_repr().to(torch.int32)
+
+scale_fc = model.fc_1.scale.item()
+scale_fc_input = model.mp2_out_np.max() / 127.0
+bias_float_fc = model.fc_1.bias().detach()
+int_fc_bias = torch.round(bias_float_fc / (scale_fc_input * scale_fc)).to(torch.int32)
 
 # 2's Complement
 for i in range(10):
@@ -336,35 +370,35 @@ for i in range(10):
 print(int_fc_weight)
 print(int_fc_bias)
 
-np.savetxt('txt/fc_weight.txt', int_fc_weight, fmt='%1.2x',delimiter = " ")
-np.savetxt('txt/fc_bias.txt', int_fc_bias, fmt='%1.2x',delimiter = " ")
+np.savetxt('txt_quantized/fc_weight.txt', int_fc_weight, fmt='%1.2x',delimiter = " ")
+np.savetxt('txt_quantized/fc_bias.txt', int_fc_bias, fmt='%1.2x',delimiter = " ")
 
 #################### Output Data of each layer ####################
 print(np.shape(model.conv1_out_np))
-np.savetxt('txt/out_conv1_value_1.txt', model.conv1_out_np[0][0]*128, fmt='%1.5d',delimiter = " ")
-np.savetxt('txt/out_conv1_value_2.txt', model.conv1_out_np[0][1]*128, fmt='%1.5d',delimiter = " ")
-np.savetxt('txt/out_conv1_value_3.txt', model.conv1_out_np[0][2]*128, fmt='%1.5d',delimiter = " ")
+np.savetxt('txt_quantized/out_conv1_value_1.txt', model.conv1_out_np[0][0], fmt='%1.5d',delimiter = " ")
+np.savetxt('txt_quantized/out_conv1_value_2.txt', model.conv1_out_np[0][1], fmt='%1.5d',delimiter = " ")
+np.savetxt('txt_quantized/out_conv1_value_3.txt', model.conv1_out_np[0][2], fmt='%1.5d',delimiter = " ")
 
 print(np.shape(model.mp1_out_np))
-np.savetxt('txt/out_mp1_value_1.txt', model.mp1_out_np[0][0]*128, fmt='%1.5d',delimiter = " ")
-np.savetxt('txt/out_mp1_value_2.txt', model.mp1_out_np[0][1]*128, fmt='%1.5d',delimiter = " ")
-np.savetxt('txt/out_mp1_value_3.txt', model.mp1_out_np[0][2]*128, fmt='%1.5d',delimiter = " ")
+np.savetxt('txt_quantized/out_mp1_value_1.txt', model.mp1_out_np[0][0], fmt='%1.5d',delimiter = " ")
+np.savetxt('txt_quantized/out_mp1_value_2.txt', model.mp1_out_np[0][1], fmt='%1.5d',delimiter = " ")
+np.savetxt('txt_quantized/out_mp1_value_3.txt', model.mp1_out_np[0][2], fmt='%1.5d',delimiter = " ")
 
 print(np.shape(model.conv2_out_np))
-np.savetxt('txt/out_conv2_value_1.txt', model.conv2_out_np[0][0]*128, fmt='%1.5d',delimiter = " ")
-np.savetxt('txt/out_conv2_value_2.txt', model.conv2_out_np[0][1]*128, fmt='%1.5d',delimiter = " ")
-np.savetxt('txt/out_conv2_value_3.txt', model.conv2_out_np[0][2]*128, fmt='%1.5d',delimiter = " ")
+np.savetxt('txt_quantized/out_conv2_value_1.txt', model.conv2_out_np[0][0], fmt='%1.5d',delimiter = " ")
+np.savetxt('txt_quantized/out_conv2_value_2.txt', model.conv2_out_np[0][1], fmt='%1.5d',delimiter = " ")
+np.savetxt('txt_quantized/out_conv2_value_3.txt', model.conv2_out_np[0][2], fmt='%1.5d',delimiter = " ")
 
 print(np.shape(model.mp2_out_np))
-np.savetxt('txt/out_mp2_value_1.txt', model.mp2_out_np[0][0]*128, fmt='%1.5d',delimiter = " ")
-np.savetxt('txt/out_mp2_value_2.txt', model.mp2_out_np[0][1]*128, fmt='%1.5d',delimiter = " ")
-np.savetxt('txt/out_mp2_value_3.txt', model.mp2_out_np[0][2]*128, fmt='%1.5d',delimiter = " ")
+np.savetxt('txt_quantized/out_mp2_value_1.txt', model.mp2_out_np[0][0], fmt='%1.5d',delimiter = " ")
+np.savetxt('txt_quantized/out_mp2_value_2.txt', model.mp2_out_np[0][1], fmt='%1.5d',delimiter = " ")
+np.savetxt('txt_quantized/out_mp2_value_3.txt', model.mp2_out_np[0][2], fmt='%1.5d',delimiter = " ")
 
 print(np.shape(model.fc_in_np))
-np.savetxt('txt/fc_in_value.txt', model.fc_in_np*128, fmt='%1.5d',delimiter = " ")
+np.savetxt('txt_quantized/fc_in_value.txt', model.fc_in_np, fmt='%1.5d',delimiter = " ")
 
 print(np.shape(model.fc_out_np))
-np.savetxt('txt/fc_out_value.txt', model.fc_out_np*128, fmt='%1.5d',delimiter = " ")
+np.savetxt('txt_quantized/fc_out_value.txt', model.fc_out_np, fmt='%1.5d',delimiter = " ")
 
 
 np.set_printoptions(suppress=True)
@@ -448,7 +482,7 @@ for c in range(3):
             output_calc_1[c][i][j] += (_input_1[i:i+5, j:j+5] * weight[c][0]).sum()
             output_calc_2[c][i][j] += (_input_2[i:i+5, j:j+5] * weight[c][1]).sum()
             output_calc_3[c][i][j] += (_input_3[i:i+5, j:j+5] * weight[c][2]).sum()
-            output_calc[c][i][j] = output_calc_1[c][i][j] + output_calc_2[c][i][j] + output_calc_3[c][i][j] + bias[c] * 128
+            output_calc[c][i][j] = output_calc_1[c][i][j] + output_calc_2[c][i][j] + output_calc_3[c][i][j] + bias[c]
         
 print("\nBias : ")
 print(bias)
