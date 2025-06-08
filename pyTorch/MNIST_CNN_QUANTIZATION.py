@@ -429,12 +429,12 @@ orig_input_2 = model.mp1_out_np[0][1]
 orig_input_3 = model.mp1_out_np[0][2]
 
 print("Original Weight")
-print(model.conv2.weight.detach().numpy())
-orig_weight = model.conv2.weight.detach().numpy()
+print(model.conv2.weight().int_repr().numpy())
+orig_weight = model.conv2.weight().int_repr().numpy()
 
 print("Original Bias")
-print(model.conv2.bias.detach().numpy())
-orig_bias = model.conv2.bias.detach().numpy()
+print(model.conv2.bias().detach().numpy())
+orig_bias = model.conv2.bias().detach().numpy()
 
 orig_output_calc_1 = np.zeros((3,8,8))
 orig_output_calc_2 = np.zeros((3,8,8))
@@ -466,13 +466,13 @@ print(_input)
 print('\n')
 
 print("Convolution Weight")
-print(np.shape(model.conv2.weight.detach().numpy()))
-weight = model.conv2.weight.detach().numpy() * 128
+print(np.shape(model.conv2.weight().int_repr().numpy()))
+weight = model.conv2.weight().int_repr().to(torch.int32).numpy() * 128
 print(weight)
 
 print("Convolution Bias")
-print(np.shape(model.conv2.bias.detach().numpy()))
-bias = model.conv2.bias.detach().numpy() * 128
+print(np.shape(model.conv2.bias().detach().numpy()))
+bias = model.conv2.bias().detach().numpy() * 128
 print(bias)
 
 print("Convolution Output")
