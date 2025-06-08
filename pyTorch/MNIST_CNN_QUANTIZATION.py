@@ -78,24 +78,42 @@ class CNN(nn.Module):
 
         # Layer Integration
         x = self.conv1(x)
-        self.conv1_out_np = x.detach().numpy()
+        if x.is_quantized:
+            self.conv1_out_np = x.dequantize().numpy()
+        else:
+            self.conv1_out_np = x.detach().numpy()
         
         x = F.relu(self.mp(x))
-        self.mp1_out_np = x.detach().numpy()
+        if x.is_quantized:
+            self.mp1_out_np = x.dequantize().numpy()
+        else:
+            self.mp1_out_np = x.detach().numpy()
 
         x = self.conv2(x)
-        self.conv2_out_np = x.detach().numpy()
+        if x.is_quantized:
+            self.conv2_out_np = x.dequantize().numpy()
+        else:
+            self.conv2_out_np = x.detach().numpy()
         
         x = F.relu(self.mp(x))
-        self.mp2_out_np = x.detach().numpy()
+        if x.is_quantized:
+            self.mp2_out_np = x.dequantize().numpy()
+        else:
+            self.mp2_out_np = x.detach().numpy()
         
         # Flatten Layer
-        x = x.view(in_size, -1)
-        self.fc_in_np = x.detach().numpy()
+        x = x.reshape(in_size, -1)
+        if x.is_quantized:
+            self.fc_in_np = x.dequantize().numpy()
+        else:
+            self.fc_in_np = x.detach().numpy()
         
         # Fully Connected Layer
         x = self.fc_1(x)
-        self.fc_out_np = x.detach().numpy()
+        if x.is_quantized:
+            self.fc_out_np = x.dequantize().numpy()
+        else:
+            self.fc_out_np = x.detach().numpy()
 
         x = self.dequant(x)
         
@@ -211,8 +229,8 @@ int_conv1_weight_1 =  int_conv1_weight[0][0].to(torch.int32)
 int_conv1_weight_2 =  int_conv1_weight[1][0].to(torch.int32)
 int_conv1_weight_3 =  int_conv1_weight[2][0].to(torch.int32)
 
-scale_conv1 = model.conv1.scale.item()
-scale_input_conv1 = model.quant.scale.item()
+scale_conv1 = model.conv1.scale
+scale_input_conv1 = model.quant.scale
 bias_float_conv1 = model.conv1.bias().detach()
 int_conv1_bias = (bias_float_conv1 / (scale_input_conv1 * scale_conv1)).to(torch.int32)
 
@@ -266,7 +284,7 @@ int_conv2_weight_31 =  int_conv2_weight[2][0].to(torch.int32)
 int_conv2_weight_32 =  int_conv2_weight[2][1].to(torch.int32)
 int_conv2_weight_33 =  int_conv2_weight[2][2].to(torch.int32)
 
-scale_conv2 = model.conv2.scale.item()
+scale_conv2 = model.conv2.scale
 scale_input_conv2 = model.mp1_out_np.max() / 127.0
 bias_float_conv2 = model.conv2.bias().detach()
 int_conv2_bias = (bias_float_conv2 / (scale_input_conv2 * scale_conv2)).to(torch.int32)
@@ -350,11 +368,11 @@ print(np.shape(model.fc_1.weight()))
 print(model.fc_1.weight().int_repr())
 
 print(np.shape(model.fc_1.bias()))
-print(model.fc_1.bias().int_repr())
+print(model.fc_1.bias())
 
 int_fc_weight = model.fc_1.weight().int_repr().to(torch.int32)
 
-scale_fc = model.fc_1.scale.item()
+scale_fc = model.fc_1.scale
 scale_fc_input = model.mp2_out_np.max() / 127.0
 bias_float_fc = model.fc_1.bias().detach()
 int_fc_bias = torch.round(bias_float_fc / (scale_fc_input * scale_fc)).to(torch.int32)

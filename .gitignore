@@ -1,0 +1,8 @@
+pyTorch/mnist_cnn/data/MNIST/raw/t10k-images-idx3-ubyte
+pyTorch/mnist_cnn/data/MNIST/raw/t10k-images-idx3-ubyte.gz
+pyTorch/mnist_cnn/data/MNIST/raw/t10k-labels-idx1-ubyte
+pyTorch/mnist_cnn/data/MNIST/raw/t10k-labels-idx1-ubyte.gz
+pyTorch/mnist_cnn/data/MNIST/raw/train-images-idx3-ubyte
+pyTorch/mnist_cnn/data/MNIST/raw/train-images-idx3-ubyte.gz
+pyTorch/mnist_cnn/data/MNIST/raw/train-labels-idx1-ubyte
+pyTorch/mnist_cnn/data/MNIST/raw/train-labels-idx1-ubyte.gz
